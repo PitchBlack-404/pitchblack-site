@@ -15,13 +15,38 @@ const fmtDate = iso=>new Date(iso).toLocaleString();
 
 // minimal supabase client fetch helper (no SDK needed for static)
 let _session = JSON.parse(localStorage.getItem("pb_session")||"null");
+async function refreshSession(){
+  if(!_session?.refresh_token) return false;
+  try{
+    const res=await fetch(SUPABASE_URL+"/auth/v1/token?grant_type=refresh_token",{method:"POST",headers:{"apikey":SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({refresh_token:_session.refresh_token})});
+    if(!res.ok) return false;
+    const d=await res.json();
+    if(d.access_token){ _session=d; localStorage.setItem("pb_session",JSON.stringify(d)); return true; }
+    return false;
+  }catch(e){ return false; }
+}
+let _refreshing=null;
 async function sb(path,method="GET",body){
   if(SETUP_PENDING) throw new Error("setup pending");
+  // proactively refresh expired sessions (Supabase tokens last ~1 hour)
+  if(_session?.expires_at && Date.now()/1000 > _session.expires_at-30 && !_refreshing){
+    _refreshing=refreshSession().finally(()=>{_refreshing=null;});
+  }
+  if(_refreshing) await _refreshing;
   const h={"apikey":SUPABASE_KEY,"Content-Type":"application/json"};
   if(_session?.access_token) h["Authorization"]="Bearer "+_session.access_token;
   const res = await fetch(SUPABASE_URL+"/rest/v1/"+path,{method,headers:h,body:body?JSON.stringify(body):undefined});
   const text = await res.text();
   let data; try{data=JSON.parse(text)}catch{data=text}
+  if(res.status===401 || (typeof text==="string"&&text.toLowerCase().includes("jwt expired"))){
+    const ok=await refreshSession();
+    if(ok) return sb(path,method,body);
+    // refresh failed: old session is dead, drop it and ask for login again
+    _session=null; localStorage.removeItem("pb_session");
+    renderNav&&renderNav();
+    location.hash="#/auth";
+    throw new Error("Your session expired. Please sign in again.");
+  }
   if(!res.ok) throw new Error((data?.message||text||res.status));
   return data;
 }
