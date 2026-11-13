@@ -122,6 +122,7 @@ async function render(){
   if(h.startsWith("#/rates")) return renderRates(app);
   if(h.startsWith("#/auth")) return renderAuth(app);
   if(h.startsWith("#/dashboard")) return renderDashboard(app);
+  if(h.startsWith("#/recap")) return renderRecap(app);
   if(h.startsWith("#/receipt")) return renderReceipt(app);
   if(h.startsWith("#/admin")) return renderAdmin(app);
   return renderHome(app);
@@ -353,6 +354,12 @@ async function renderDashboard(app){
       render();
     }catch(err){ msg.textContent=err.message; }
   };
+}
+
+async function renderRecap(app){
+  let r=null;
+  try{ r=(await sb("rate_recap?order=day.desc&limit=1"))[0]; }catch(e){}
+  app.innerHTML=`<h1>Daily rate recap</h1><div class="card"><pre style="white-space:pre-wrap;font-family:inherit">${r?esc(r.body):"No recap published yet. The first one lands tomorrow morning."}</pre></div><p class="mut small">Updated every morning. <a class="btn primary" href="https://x.com/DefiSamurai_x" target="_blank" rel="noopener">Follow @DefiSamurai_x</a></p>`;
 }
 
 async function renderReceipt(app){
