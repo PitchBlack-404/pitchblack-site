@@ -32,7 +32,7 @@ async function signIn(email,password){
   _session=data; localStorage.setItem("pb_session",JSON.stringify(data)); return data;
 }
 async function signUp(email,password,whatsapp,fullname,country,state){
-  const res=await fetch(SUPABASE_URL+"/auth/v1/signup",{method:"POST",headers:{"apikey":SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({email,password,data:{whatsapp:whatsapp||"",fullname:fullname||"",country:country||"",state:state||""}})});
+  const res=await fetch(SUPABASE_URL+"/auth/v1/signup",{method:"POST",headers:{"apikey":SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({email,password,data:{whatsapp:whatsapp||"",fullname:fullname||"",country:country||"",state:state||"",referred_by:(new URLSearchParams(location.search).get("ref")||"")}})});
   const data=await res.json();
   if(!res.ok) throw new Error(data.error_description||data.msg||"sign up failed");
   if(data.access_token){_session=data; localStorage.setItem("pb_session",JSON.stringify(data));}
@@ -298,9 +298,21 @@ async function renderDashboard(app){
 
   <div id="alertsBox"></div>
 
+  <div class="card"><h2>Save your payout details</h2><p class="mut small">Bank account or wallet address we prefill on every trade request. You can still type a different one per trade.</p>
+  <form id="detailsForm"><label>Default destination (bank account number or wallet address)<input name="default_destination" placeholder="e.g. 0123456789 - GTBank, or a USDT TRC20 address"></label>
+  <button class="btn primary">Save details</button><p class="mut small" id="detailsMsg"></p></form></div>
+
+  <div id="refBox"></div>
+
   <div class="card"><h2>Your trade requests</h2><div style="overflow:auto"><table><thead><tr><th>Date</th><th>Side</th><th>Coin</th><th>NGN</th><th>Crypto</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
   <p class="mut small">Pending trades get confirmed on <a href="${WA}" target="_blank" rel="noopener">WhatsApp +2349016755312</a>.</p></div>`;
   renderAlerts(u).then(h=>{ const b=$("#alertsBox"); if(b)b.innerHTML=h; });
+  sb("profiles?user_id=eq."+u.id+"&select=*").then(ps=>{
+    const p=(ps&&ps[0])||{}; const dest=$("input[name=destination]"); if(dest&&!dest.value&&p.default_destination)dest.value=p.default_destination;
+    const refCode=p.referral_code||u.id.slice(0,8); const refLink=location.origin+location.pathname+"#/auth?ref="+refCode;
+    const refBox=$("#refBox"); if(refBox)refBox.innerHTML=`<div class="card"><h2>Your referral link</h2><p class="mut small">Share it. When someone signs up through it, it's recorded against you.</p><input class="mono" style="width:100%;background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:10px;border-radius:10px" readonly value="${esc(refLink)}" onclick="this.select()"><p class="mut small" id="refCount"></p></div>`;
+    sb("profiles?referred_by=eq."+refCode+"&select=user_id").then(r=>{ const rc=$("#refCount"); if(rc)rc.textContent=r.length?r.length+" signups through your link":"No signups through your link yet."; }).catch(()=>{});
+  }).catch(()=>{});
 
   let side="buy";
   document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");side=t.dataset.s;$("#buyFields").hidden=side!=="buy";$("#sellFields").hidden=side!=="sell";});
@@ -332,7 +344,15 @@ async function renderAdmin(app){
   try{ (await sb("profiles?select=user_id,whatsapp,email,fullname,country,state")).forEach(p=>profiles[p.user_id]=p); }catch(e){}
   const rows=trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)} ${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td class="mono">${esc(t.destination)}</td><td>${esc(t.destination_note||"")}</td><td><span class="pill ${esc(t.status)}">${esc(t.status)}</span></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td><td>${esc((profiles[t.user_id]||{}).fullname||"")}</td><td>${esc([(profiles[t.user_id]||{}).state,(profiles[t.user_id]||{}).country].filter(Boolean).join(", "))}</td>
     <td>${["pending","completed","declined"].map(s=>`<button class="btn" data-id="${t.id}" data-s="${s}" ${t.status===s?"disabled":""}>${s}</button>`).join(" ")}</td></tr>`).join("");
+  const today=new Date(); today.setHours(0,0,0,0);
+  const week=Date.now()-7*864e5;
+  const pend=trades.filter(t=>t.status==="pending").length;
+  const todayN=trades.filter(t=>new Date(t.created_at)>=today);
+  const weekNgn=trades.filter(t=>new Date(t.created_at).getTime()>=week).reduce((s,t)=>s+Number(t.amount_ngn||0),0);
   app.innerHTML=`<h1>Admin panel <span class="small mut">${esc(u.email)}</span></h1>
+  <div class="rategrid"><div class="rate"><div class="sub">Pending now</div><b>${pend}</b></div>
+  <div class="rate"><div class="sub">Requests today</div><b>${todayN.length}</b></div>
+  <div class="rate"><div class="sub">NGN volume, 7 days</div><b>${fmtNgn(weekNgn)}</b></div></div>
   <div class="card"><h2>All trade requests (${trades.length})</h2><div style="overflow:auto"><table><thead><tr><th>Date</th><th>Trade</th><th>NGN</th><th>Crypto</th><th>Destination</th><th>Note</th><th>Status</th><th>WhatsApp</th><th>Name</th><th>State, Country</th><th>Action</th></tr></thead><tbody>${rows||'<tr><td colspan="11" class="mut">No trades yet.</td></tr>'}</tbody></table></div></div>`;
   document.querySelectorAll("button[data-id]").forEach(b=>b.onclick=async()=>{
     const id=b.dataset.id, s=b.dataset.s;
@@ -341,8 +361,31 @@ async function renderAdmin(app){
   });
 }
 
+// homepage proof counters (public count)
+async function loadProof(){
+  const el1=$("#proofTrades"), el2=$("#proofDone");
+  if(!el1||!el2) return;
+  try{
+    const h={apikey:SUPABASE_KEY,Authorization:"Bearer "+SUPABASE_KEY,Prefer:"count=exact",Range:"0-0"};
+    const r1=await fetch(SUPABASE_URL+"/rest/v1/trade_requests?select=id",{headers:h});
+    const r2=await fetch(SUPABASE_URL+"/rest/v1/trade_requests?select=id&status=eq.completed",{headers:h});
+    const cnt=r=>{ const cr=r.headers.get("content-range"); return cr?Number(cr.split("/")[1]):0; };
+    el1.textContent=cnt(r1); el2.textContent=cnt(r2);
+  }catch(e){ el1.textContent="-"; el2.textContent="-"; }
+}
+loadProof();
+
 // boot: load rates, then render current hash
 loadRates();
+
+// save default payout details
+document.addEventListener("submit",async e=>{
+  if(e.target.id!=="detailsForm")return;
+  e.preventDefault();
+  const m=$("#detailsMsg"); if(!m)return;
+  try{ await sb("profiles?user_id=eq."+_session.user.id,"PATCH",{default_destination:e.target.default_destination.value.trim()}); m.textContent="Saved. New trade requests will prefill it."; }
+  catch(err){ m.textContent=err.message; }
+});
 
 // email list signup
 document.addEventListener("submit",async e=>{

@@ -104,3 +104,28 @@ create table if not exists public.email_subscribers (
 alter table public.email_subscribers enable row level security;
 create policy "anyone can join the list" on public.email_subscribers
   for insert with check (true);
+
+-- ---------- saved payout details + referrals ----------
+alter table public.profiles add column if not exists default_destination text;
+alter table public.profiles add column if not exists referral_code text;
+alter table public.profiles add column if not exists referred_by text;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (user_id, email, whatsapp, fullname, country, state, referral_code, referred_by)
+  values (new.id, new.email,
+          new.raw_user_meta_data->>'whatsapp',
+          new.raw_user_meta_data->>'fullname',
+          new.raw_user_meta_data->>'country',
+          new.raw_user_meta_data->>'state',
+          left(new.id::text, 8),
+          nullif(new.raw_user_meta_data->>'referred_by', '')
+  );
+  return new;
+end;
+$$;

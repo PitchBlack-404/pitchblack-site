@@ -67,3 +67,12 @@ th{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.08em
 .joinsec form{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 .joinsec input{background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:12px 14px;border-radius:12px;min-width:240px}
 .joinsec input:focus{outline:none;border-color:#666}
+
+/* how it works + proof */
+.howsec,.proofsec{max-width:1160px;margin:0 auto;padding:48px 22px;text-align:center;border-top:1px solid var(--line)}
+.howsec h2,.proofsec h2{font-size:26px;margin-bottom:18px}
+.steps{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:var(--r,16px);padding:18px;max-width:230px;flex:1 1 200px}
+.step b{display:inline-block;width:30px;height:30px;line-height:30px;border-radius:50%;background:#fff;color:#000;font-weight:900;margin-bottom:8px}
+.step p{color:var(--muted);font-size:14px}
+.proofgrid{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
