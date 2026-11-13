@@ -31,8 +31,8 @@ async function signIn(email,password){
   if(!res.ok) throw new Error(data.error_description||data.msg||"sign in failed");
   _session=data; localStorage.setItem("pb_session",JSON.stringify(data)); return data;
 }
-async function signUp(email,password,whatsapp){
-  const res=await fetch(SUPABASE_URL+"/auth/v1/signup",{method:"POST",headers:{"apikey":SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({email,password,data:{whatsapp:whatsapp||""}})});
+async function signUp(email,password,whatsapp,fullname,country,state){
+  const res=await fetch(SUPABASE_URL+"/auth/v1/signup",{method:"POST",headers:{"apikey":SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({email,password,data:{whatsapp:whatsapp||"",fullname:fullname||"",country:country||"",state:state||""}})});
   const data=await res.json();
   if(!res.ok) throw new Error(data.error_description||data.msg||"sign up failed");
   if(data.access_token){_session=data; localStorage.setItem("pb_session",JSON.stringify(data));}
@@ -210,6 +210,9 @@ async function renderAuth(app){
     <label>Email<input name="email" type="email" required></label>
     <label>Password<input name="password" type="password" required minlength="6"></label>
     <label id="waField" hidden>WhatsApp number<input name="whatsapp" type="tel" placeholder="+234..." required></label>
+    <label id="nameField" hidden>Full name<input name="fullname" type="text" required></label>
+    <label id="countryField" hidden>Country<input name="country" type="text" placeholder="Nigeria" required></label>
+    <label id="stateField" hidden>State<input name="state" type="text" placeholder="Lagos" required></label>
     <button class="btn primary" style="margin-top:14px">Submit</button>
     <p class="mut small" id="authMsg"></p>
   </form>
@@ -226,12 +229,12 @@ async function renderAuth(app){
     <p class="small" style="margin-top:10px"><a href="#" id="forgotBack">Back to login</a></p>
   </div>`;
   let mode="login";
-  document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");mode=t.dataset.m;const wf=$("#waField");if(wf)wf.hidden=mode!=="signup";});
+  document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");mode=t.dataset.m;["waField","nameField","countryField","stateField"].forEach(id=>{const el=$("#"+id);if(el)el.hidden=mode!=="signup";});});
   $("#authForm").onsubmit=async e=>{
     e.preventDefault();
-    const f=new FormData(e.target), email=f.get("email"), pw=f.get("password"), wa=(f.get("whatsapp")||"").trim();
+    const f=new FormData(e.target), email=f.get("email"), pw=f.get("password"), wa=(f.get("whatsapp")||"").trim(), fn=(f.get("fullname")||"").trim(), ctry=(f.get("country")||"").trim(), st=(f.get("state")||"").trim();
     const msg=$("#authMsg"); msg.textContent="Working…";
-    try{ mode==="login"?await signIn(email,pw):await signUp(email,pw,wa); location.hash="#/dashboard"; render(); }
+    try{ mode==="login"?await signIn(email,pw):await signUp(email,pw,wa,fn,ctry,st); location.hash="#/dashboard"; render(); }
     catch(err){ msg.textContent=err.message; }
   };
   const fl=$("#forgotLink"), fc=$("#forgotCard");
@@ -274,7 +277,7 @@ async function renderDashboard(app){
   let trades=[];
   try{ trades=await sb("trade_requests?user_id=eq."+u.id+"&order=created_at.desc"); }catch(e){ trades=[]; }
   const coinOpts=COINS.map(c=>`<option value="${esc(c.code)}">${esc(c.code)} — ${esc(c.name)}</option>`).join("");
-  const rows=trades.length?trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)}</td><td>${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td><span class="pill ${esc(t.status)}">${esc(t.status)}</span></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td></tr>`).join(""):`<tr><td colspan="6" class="mut">No trade requests yet.</td></tr>`;
+  const rows=trades.length?trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)}</td><td>${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td><span class="pill ${esc(t.status)}">${esc(t.status)}</span></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td><td>${esc((profiles[t.user_id]||{}).fullname||"")}</td><td>${esc([(profiles[t.user_id]||{}).state,(profiles[t.user_id]||{}).country].filter(Boolean).join(", "))}</td></tr>`).join(""):`<tr><td colspan="6" class="mut">No trade requests yet.</td></tr>`;
   app.innerHTML=`<h1>Dashboard <span class="small mut">${esc(u.email)}</span></h1>
   ${isAdmin(u)?`<p><a class="btn" href="#/admin">Admin panel</a></p>`:""}
   <div class="card"><div class="row"><h2>Live rates ${rateBadge()}</h2><span class="small mut">${esc(RATE_TS||"")}</span></div>
@@ -323,11 +326,11 @@ async function renderAdmin(app){
   if(!isAdmin(u)){ app.innerHTML=`<h1>Admin</h1><div class="notice">Admin access only. Contact <a href="${WA}" target="_blank">WhatsApp +2349016755312</a>.</div>`; return; }
   let trades=[],profiles={};
   try{ trades=await sb("trade_requests?order=created_at.desc"); }catch(e){ trades=[]; }
-  try{ (await sb("profiles?select=user_id,whatsapp,email")).forEach(p=>profiles[p.user_id]=p); }catch(e){}
-  const rows=trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)} ${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td class="mono">${esc(t.destination)}</td><td>${esc(t.destination_note||"")}</td><td><span class="pill ${esc(t.status)}">${esc(t.status)}</span></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td>
+  try{ (await sb("profiles?select=user_id,whatsapp,email,fullname,country,state")).forEach(p=>profiles[p.user_id]=p); }catch(e){}
+  const rows=trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)} ${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td class="mono">${esc(t.destination)}</td><td>${esc(t.destination_note||"")}</td><td><span class="pill ${esc(t.status)}">${esc(t.status)}</span></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td><td>${esc((profiles[t.user_id]||{}).fullname||"")}</td><td>${esc([(profiles[t.user_id]||{}).state,(profiles[t.user_id]||{}).country].filter(Boolean).join(", "))}</td>
     <td>${["pending","completed","declined"].map(s=>`<button class="btn" data-id="${t.id}" data-s="${s}" ${t.status===s?"disabled":""}>${s}</button>`).join(" ")}</td></tr>`).join("");
   app.innerHTML=`<h1>Admin panel <span class="small mut">${esc(u.email)}</span></h1>
-  <div class="card"><h2>All trade requests (${trades.length})</h2><div style="overflow:auto"><table><thead><tr><th>Date</th><th>Trade</th><th>NGN</th><th>Crypto</th><th>Destination</th><th>Note</th><th>Status</th><th>WhatsApp</th><th>Action</th></tr></thead><tbody>${rows||'<tr><td colspan="9" class="mut">No trades yet.</td></tr>'}</tbody></table></div></div>`;
+  <div class="card"><h2>All trade requests (${trades.length})</h2><div style="overflow:auto"><table><thead><tr><th>Date</th><th>Trade</th><th>NGN</th><th>Crypto</th><th>Destination</th><th>Note</th><th>Status</th><th>WhatsApp</th><th>Name</th><th>State, Country</th><th>Action</th></tr></thead><tbody>${rows||'<tr><td colspan="11" class="mut">No trades yet.</td></tr>'}</tbody></table></div></div>`;
   document.querySelectorAll("button[data-id]").forEach(b=>b.onclick=async()=>{
     const id=b.dataset.id, s=b.dataset.s;
     try{ await sb("trade_requests?id=eq."+id,"PATCH",{status:s,updated_at:new Date().toISOString()}); render(); }
