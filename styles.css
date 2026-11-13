@@ -83,3 +83,15 @@ th{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.08em
 .faq>div{border-bottom:1px solid var(--line);padding:14px 4px}
 .faq b{display:block;margin-bottom:4px}
 .faq p{color:var(--muted);font-size:14px}
+
+/* support bot */
+#pbBotBtn{position:fixed;right:18px;bottom:18px;z-index:90;width:52px;height:52px;border-radius:50%;background:#fff;color:#000;font-weight:900;font-size:20px;border:none;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+#pbBotPanel{position:fixed;right:18px;bottom:80px;z-index:90;width:320px;max-width:calc(100vw - 36px);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.pbHead{font-weight:700}
+.pbLog{max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.pbMsg{padding:8px 10px;border-radius:12px;font-size:14px;max-width:90%}
+.pbBot2{background:var(--panel2);border:1px solid var(--line)}
+.pbMe{background:#fff;color:#000;margin-left:auto}
+.pbForm{display:flex;gap:6px}
+.pbForm input{flex:1;background:var(--bg);border:1px solid var(--line);color:var(--txt);padding:9px;border-radius:10px}
+.pbWa{font-size:13px;color:var(--muted);text-decoration:underline}

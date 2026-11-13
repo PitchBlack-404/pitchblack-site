@@ -507,3 +507,54 @@ document.addEventListener("click",async e=>{
   const id=e.target&&e.target.dataset&&e.target.dataset.alert; if(!id)return;
   try{ await sb("rate_alerts?id=eq."+id,"PATCH",{status:"cancelled"}); render(); }catch(err){ alert(err.message); }
 });
+
+// ---------- support chatbot (rule-based, live rates, WhatsApp escalation) ----------
+const PB_ANSWERS=[
+  {k:["settle","how long","arrive","when will i receive","receive my"],a:"Most trades settle within 30 minutes of the desk confirming on WhatsApp. Naira transfers follow Nigerian bank hours."},
+  {k:["fee","spread","charge","cost","commission"],a:"Rates on this site already include the desk spread: about 1.5% on BTC and ETH, about 2% on other coins. The rate you see is the rate you trade."},
+  {k:["safe","scam","trust","legit","real"],a:"Every trade is a request until a human confirms it on WhatsApp. You send funds only after confirmation. We never hold custody of any wallet."},
+  {k:["minimum","min","least"],a:"Minimum buy is 5,000 naira. Sell minimums vary by coin and show on the trade form."},
+  {k:["coin","which crypto","what can i buy","what can i sell"],a:"We trade BTC, USDT, USDC, ETH, BNB, SOL, XRP, DOGE and TRX against naira, both buying and selling."},
+  {k:["rate","price of","how much is","current"],a:"live-rate"},
+  {k:["account","sign up","signup","register","login","password"],a:"Click Sign up on the site, fill email, password, WhatsApp, name, country and state. Forgot your password? Use the reset link on the login page."},
+  {k:["refund","decline","cancel","wrong"],a:"Pending requests can be declined by the desk before settlement. Message the desk on WhatsApp and they'll sort it out."},
+  {k:["alert"],a:"Go to your dashboard, open Rate alerts, pick a coin, set a naira target. You'll see a banner the moment the live rate crosses it."},
+  {k:["referral","refer","invite"],a:"Your dashboard has a referral link. Share it; signups through it are recorded against your account."},
+];
+async function pbAnswer(q){
+  const s=q.toLowerCase();
+  for(const item of PB_ANSWERS){ if(item.k.some(k=>s.includes(k))){
+    if(item.a==="live-rate"){
+      const c=COINS.find(c=>s.includes(c.code.toLowerCase())||s.includes((c.name||"").toLowerCase()));
+      if(c&&RATES[c.code]) return c.code+" is currently "+fmtNgn(RATES[c.code])+" per coin. The desk quotes the final rate on WhatsApp when you trade.";
+      return "Live naira rates for all coins are on the Rates page. The desk confirms the exact rate on WhatsApp when you trade.";
+    }
+    return item.a;
+  }}
+  return null;
+}
+function pbWidget(){
+  const w=document.createElement("div");
+  w.id="pbBot"; w.innerHTML=`
+  <button id="pbBotBtn" aria-label="Support chat">?</button>
+  <div id="pbBotPanel" hidden>
+    <div class="pbHead">PitchBlack support <span class="mut small">bot. for trades, a human replies on WhatsApp</span></div>
+    <div id="pbLog" class="pbLog"><div class="pbMsg pbBot2">Hi. I handle the small stuff: rates, fees, how settlement works. Anything about an actual trade goes to the desk on WhatsApp.</div></div>
+    <form id="pbForm" class="pbForm"><input name="q" placeholder="Ask about rates, fees, settlement..." autocomplete="off"><button class="btn primary">Send</button></form>
+    <a class="pbWa" href="${WA}" target="_blank" rel="noopener">Talk to a human on WhatsApp</a>
+  </div>`;
+  document.body.appendChild(w);
+  document.getElementById("pbBotBtn").onclick=()=>{ const p=document.getElementById("pbBotPanel"); p.hidden=!p.hidden; };
+  document.getElementById("pbForm").onsubmit=async e=>{
+    e.preventDefault();
+    const q=e.target.q.value.trim(); if(!q)return;
+    e.target.q.value="";
+    const log=document.getElementById("pbLog");
+    log.insertAdjacentHTML("beforeend",`<div class="pbMsg pbMe">${esc(q)}</div><div class="pbMsg pbBot2" id="pbTyping">...</div>`);
+    log.scrollTop=log.scrollHeight;
+    const ans=await pbAnswer(q)||"I don't have that one. For anything about a real trade, payment or dispute, message the desk on WhatsApp below, a human answers.";
+    const t=document.getElementById("pbTyping"); if(t){ t.textContent=ans; }
+    log.scrollTop=log.scrollHeight;
+  };
+}
+if(document.readyState!=="loading") pbWidget(); else document.addEventListener("DOMContentLoaded",pbWidget);
