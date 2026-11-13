@@ -546,14 +546,21 @@ function pbWidget(){
   const w=document.createElement("div");
   w.id="pbBot"; w.innerHTML=`
   <button id="pbBotBtn" aria-label="Support chat">?</button>
-  <div id="pbBotPanel" hidden>
+  <div id="pbBotPanel">
     <div class="pbHead">PitchBlack support <span class="mut small">bot. for trades, a human replies on WhatsApp</span></div>
     <div id="pbLog" class="pbLog"><div class="pbMsg pbBot2">Hi. I handle the small stuff: rates, fees, how settlement works. Anything about an actual trade goes to the desk on WhatsApp.</div></div>
     <form id="pbForm" class="pbForm"><input name="q" placeholder="Ask about rates, fees, settlement..." autocomplete="off"><button class="btn primary">Send</button></form>
     <a class="pbWa" href="${WA}" target="_blank" rel="noopener">Talk to a human on WhatsApp</a>
   </div>`;
   document.body.appendChild(w);
-  document.getElementById("pbBotBtn").onclick=()=>{ const p=document.getElementById("pbBotPanel"); p.hidden=!p.hidden; };
+  const btn=document.getElementById("pbBotBtn"), panel=document.getElementById("pbBotPanel");
+  btn.textContent="+";
+  btn.onclick=()=>{
+    const openNow=panel.classList.toggle("open");
+    btn.classList.toggle("open",openNow);
+    btn.textContent=openNow?"\u00D7":"+";
+    if(openNow){ const inp=panel.querySelector("input[name=q]"); if(inp)inp.focus(); }
+  };
   document.getElementById("pbForm").onsubmit=async e=>{
     e.preventDefault();
     const q=e.target.q.value.trim(); if(!q)return;

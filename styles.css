@@ -85,8 +85,10 @@ th{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.08em
 .faq p{color:var(--muted);font-size:14px}
 
 /* support bot */
-#pbBotBtn{position:fixed;right:18px;bottom:18px;z-index:90;width:52px;height:52px;border-radius:50%;background:#fff;color:#000;font-weight:900;font-size:20px;border:none;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.5)}
-#pbBotPanel{position:fixed;right:18px;bottom:80px;z-index:90;width:320px;max-width:calc(100vw - 36px);background:#101010;border:1px solid #2c2c2c;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:8px;box-shadow:0 12px 40px rgba(0,0,0,.75)}
+#pbBotBtn{position:fixed;right:18px;bottom:18px;z-index:90;width:52px;height:52px;border-radius:50%;background:#fff;color:#000;font-weight:900;font-size:20px;border:none;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.5);transition:transform .15s ease, opacity .15s ease}
+#pbBotBtn.open{transform:rotate(45deg)}
+#pbBotPanel{position:fixed;right:18px;bottom:80px;z-index:90;width:320px;max-width:calc(100vw - 36px);background:#101010;border:1px solid #2c2c2c;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:8px;box-shadow:0 12px 40px rgba(0,0,0,.75);opacity:0;pointer-events:none;transform:translateY(10px);transition:opacity .18s ease, transform .18s ease}
+#pbBotPanel.open{opacity:1;pointer-events:auto;transform:translateY(0)}
 .pbHead{font-weight:700;color:#fff}
 .pbHead .mut{color:#9a9a9a}
 #pbBotPanel .pbWa{color:#cfcfcf}
