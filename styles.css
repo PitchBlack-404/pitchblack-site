@@ -59,3 +59,11 @@ th{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.08em
   table{font-size:13px}
   .navrow{flex-wrap:wrap}
 }
+
+/* join / email list */
+.joinsec{max-width:1160px;margin:0 auto;padding:48px 22px;text-align:center;border-top:1px solid var(--line)}
+.joinsec h2{font-size:26px;margin-bottom:8px}
+.joinsec p{color:var(--muted);max-width:520px;margin:0 auto 18px}
+.joinsec form{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.joinsec input{background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:12px 14px;border-radius:12px;min-width:240px}
+.joinsec input:focus{outline:none;border-color:#666}

@@ -95,3 +95,12 @@ create policy "admin trades select" on public.trade_requests
   for select using (true);
 create policy "admin trades update" on public.trade_requests
   for update using (true);
+
+-- ---------- email subscribers ----------
+create table if not exists public.email_subscribers (
+  email text primary key,
+  created_at timestamptz not null default now()
+);
+alter table public.email_subscribers enable row level security;
+create policy "anyone can join the list" on public.email_subscribers
+  for insert with check (true);

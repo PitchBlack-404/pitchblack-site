@@ -340,3 +340,13 @@ async function renderAdmin(app){
 
 // boot: load rates, then render current hash
 loadRates();
+
+// email list signup
+document.addEventListener("submit",async e=>{
+  if(e.target.id!=="subForm")return;
+  e.preventDefault();
+  const email=e.target.email.value.trim(), m=$("#subMsg"); if(!m)return;
+  m.textContent="Joining...";
+  try{ await sb("email_subscribers","POST",{email}); m.textContent="You're on the list."; e.target.reset(); }
+  catch(err){ m.textContent=err.message; }
+});
