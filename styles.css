@@ -76,3 +76,10 @@ th{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.08em
 .step b{display:inline-block;width:30px;height:30px;line-height:30px;border-radius:50%;background:#fff;color:#000;font-weight:900;margin-bottom:8px}
 .step p{color:var(--muted);font-size:14px}
 .proofgrid{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
+
+.faqsec{max-width:1160px;margin:0 auto;padding:48px 22px;border-top:1px solid var(--line)}
+.faqsec h2{text-align:center;font-size:26px;margin-bottom:18px}
+.faq{max-width:720px;margin:0 auto}
+.faq>div{border-bottom:1px solid var(--line);padding:14px 4px}
+.faq b{display:block;margin-bottom:4px}
+.faq p{color:var(--muted);font-size:14px}

@@ -122,6 +122,7 @@ async function render(){
   if(h.startsWith("#/rates")) return renderRates(app);
   if(h.startsWith("#/auth")) return renderAuth(app);
   if(h.startsWith("#/dashboard")) return renderDashboard(app);
+  if(h.startsWith("#/receipt")) return renderReceipt(app);
   if(h.startsWith("#/admin")) return renderAdmin(app);
   return renderHome(app);
 }
@@ -156,7 +157,13 @@ function renderHome(app){
 }
 
 function renderRates(app){
-  const rows=COINS.map(c=>`<tr><td><b>${esc(c.code)}</b></td><td>${esc(c.name)}</td><td>${fmtNgn(RATES[c.code])}</td><td class="mut">${esc(c.note||"")}</td></tr>`).join("");
+  const hist=await (async()=>{ try{ return await sb("rate_history?select=*&order=day.desc&limit=200"); }catch(e){ return []; } })();
+  const byCoin=c=>{ const pts=hist.filter(r=>r.coin===c.code).slice(0,7).reverse(); if(pts.length<2)return"";
+    const vs=pts.map(p=>Number(p.rate_ngn)), mn=Math.min(...vs), mx=Math.max(...vs), W=90,H=26;
+    const path=vs.map((v,i)=>`${i?"L":"M"}${(i/(vs.length-1)*W).toFixed(1)},${(H-(v-mn)/((mx-mn)||1)*H).toFixed(1)}`).join("");
+    const up=vs[vs.length-1]>=vs[0];
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><path d="${path}" fill="none" stroke="${up?"#22c55e":"#ef4444"}" stroke-width="2"/></svg>`; };
+  const rows=COINS.map(c=>`<tr><td><b>${esc(c.code)}</b></td><td>${esc(c.name)}</td><td>${fmtNgn(RATES[c.code])} <span class="mut small">(desk spread included, ~${c.code==="BTC"||c.code==="ETH"?"1.5":"2"}%)</span></td><td>${hist7(c)||byCoin(c)}</td><td class="mut">${esc(c.note||"")}</td></tr>`).join("");
   app.innerHTML=`<h1>NGN rates ${rateBadge()}</h1>
   <p class="mut small">Source: CoinGecko public API, fetched client-side on every page load. Fallback table in config.js is used when the API is unreachable.</p>
   <div class="card" style="overflow:auto"><table><thead><tr><th>Coin</th><th>Name</th><th>NGN per coin</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -277,7 +284,7 @@ async function renderDashboard(app){
   let trades=[];
   try{ trades=await sb("trade_requests?user_id=eq."+u.id+"&order=created_at.desc"); }catch(e){ trades=[]; }
   const coinOpts=COINS.map(c=>`<option value="${esc(c.code)}">${esc(c.code)} — ${esc(c.name)}</option>`).join("");
-  const rows=trades.length?trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)}</td><td>${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td><span class="pill ${esc(t.status)}">${esc(t.status)}</span></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td><td>${esc((profiles[t.user_id]||{}).fullname||"")}</td><td>${esc([(profiles[t.user_id]||{}).state,(profiles[t.user_id]||{}).country].filter(Boolean).join(", "))}</td></tr>`).join(""):`<tr><td colspan="6" class="mut">No trade requests yet.</td></tr>`;
+  const rows=trades.length?trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)}</td><td>${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td><a href="#/receipt?id=${t.id}"><span class="pill ${esc(t.status)}">${esc(t.status)}</span></a></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td><td>${esc((profiles[t.user_id]||{}).fullname||"")}</td><td>${esc([(profiles[t.user_id]||{}).state,(profiles[t.user_id]||{}).country].filter(Boolean).join(", "))}</td></tr>`).join(""):`<tr><td colspan="6" class="mut">No trade requests yet.</td></tr>`;
   app.innerHTML=`<h1>Dashboard <span class="small mut">${esc(u.email)}</span></h1>
   ${isAdmin(u)?`<p><a class="btn" href="#/admin">Admin panel</a></p>`:""}
   <div class="card"><div class="row"><h2>Live rates ${rateBadge()}</h2><span class="small mut">${esc(RATE_TS||"")}</span></div>
@@ -303,6 +310,10 @@ async function renderDashboard(app){
   <button class="btn primary">Save details</button><p class="mut small" id="detailsMsg"></p></form></div>
 
   <div id="refBox"></div>
+
+  <div class="card"><h2>Leave a review</h2><p class="mut small">Completed a trade? Tell people how it went. The desk approves reviews before they show on the homepage.</p>
+  <form id="reviewForm"><label>Your review<textarea name="body" rows="3" required maxlength="280" placeholder="Fast settlement, clear rates..."></textarea></label>
+  <button class="btn primary">Submit review</button><p class="mut small" id="reviewMsg"></p></form></div>
 
   <div class="card"><h2>Your trade requests</h2><div style="overflow:auto"><table><thead><tr><th>Date</th><th>Side</th><th>Coin</th><th>NGN</th><th>Crypto</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
   <p class="mut small">Pending trades get confirmed on <a href="${WA}" target="_blank" rel="noopener">WhatsApp +2349016755312</a>.</p></div>`;
@@ -336,13 +347,32 @@ async function renderDashboard(app){
   };
 }
 
+async function renderReceipt(app){
+  const id=new URLSearchParams((location.hash.split("?")[1]||"")).get("id");
+  if(!id){ app.innerHTML=`<h1>Receipt</h1><div class="notice">Missing trade id.</div>`; return; }
+  let t=null;
+  try{ t=(await sb("trade_requests?id=eq."+id+"&select=*"))[0]; }catch(e){}
+  if(!t){ app.innerHTML=`<h1>Receipt</h1><div class="notice">Trade not found.</div>`; return; }
+  app.innerHTML=`<h1>Trade receipt</h1><div class="card"><table><tbody>
+  <tr><td>Date</td><td>${new Date(t.created_at).toLocaleString()}</td></tr>
+  <tr><td>Side</td><td><b>${esc(t.side).toUpperCase()}</b></td></tr>
+  <tr><td>Coin</td><td>${esc(t.coin)}</td></tr>
+  <tr><td>NGN amount</td><td>${fmtNgn(t.amount_ngn)}</td></tr>
+  <tr><td>Crypto amount</td><td>${fmtCrypto(t.amount_crypto,6)}</td></tr>
+  <tr><td>Rate</td><td>${fmtNgn(t.rate_ngn_per_coin)} / ${esc(t.coin)}</td></tr>
+  <tr><td>Status</td><td><span class="pill ${esc(t.status)}">${esc(t.status)}</span></td></tr>
+  </tbody></table>
+  <p class="mut small">PitchBlack OTC manual settlement desk. Confirmed by a human on WhatsApp: <a href="${WA}" target="_blank" rel="noopener">+234 901 675 5312</a>. Educational content is not financial advice.</p></div>
+  <p><a class="btn primary" href="https://wa.me/2349016755312?text=${encodeURIComponent("Hi, about my PitchBlack trade "+t.id)}">Message the desk about this trade</a></p>`;
+}
+
 async function renderAdmin(app){
   const u=await requireUser(app); if(!u) return;
   if(!isAdmin(u)){ app.innerHTML=`<h1>Admin</h1><div class="notice">Admin access only. Contact <a href="${WA}" target="_blank">WhatsApp +2349016755312</a>.</div>`; return; }
   let trades=[],profiles={};
   try{ trades=await sb("trade_requests?order=created_at.desc"); }catch(e){ trades=[]; }
   try{ (await sb("profiles?select=user_id,whatsapp,email,fullname,country,state")).forEach(p=>profiles[p.user_id]=p); }catch(e){}
-  const rows=trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)} ${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td class="mono">${esc(t.destination)}</td><td>${esc(t.destination_note||"")}</td><td><span class="pill ${esc(t.status)}">${esc(t.status)}</span></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td><td>${esc((profiles[t.user_id]||{}).fullname||"")}</td><td>${esc([(profiles[t.user_id]||{}).state,(profiles[t.user_id]||{}).country].filter(Boolean).join(", "))}</td>
+  const rows=trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)} ${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td class="mono">${esc(t.destination)}</td><td>${esc(t.destination_note||"")}</td><td><a href="#/receipt?id=${t.id}"><span class="pill ${esc(t.status)}">${esc(t.status)}</span></a></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td><td>${esc((profiles[t.user_id]||{}).fullname||"")}</td><td>${esc([(profiles[t.user_id]||{}).state,(profiles[t.user_id]||{}).country].filter(Boolean).join(", "))}</td>
     <td>${["pending","completed","declined"].map(s=>`<button class="btn" data-id="${t.id}" data-s="${s}" ${t.status===s?"disabled":""}>${s}</button>`).join(" ")}</td></tr>`).join("");
   const today=new Date(); today.setHours(0,0,0,0);
   const week=Date.now()-7*864e5;
@@ -353,13 +383,29 @@ async function renderAdmin(app){
   <div class="rategrid"><div class="rate"><div class="sub">Pending now</div><b>${pend}</b></div>
   <div class="rate"><div class="sub">Requests today</div><b>${todayN.length}</b></div>
   <div class="rate"><div class="sub">NGN volume, 7 days</div><b>${fmtNgn(weekNgn)}</b></div></div>
-  <div class="card"><h2>All trade requests (${trades.length})</h2><div style="overflow:auto"><table><thead><tr><th>Date</th><th>Trade</th><th>NGN</th><th>Crypto</th><th>Destination</th><th>Note</th><th>Status</th><th>WhatsApp</th><th>Name</th><th>State, Country</th><th>Action</th></tr></thead><tbody>${rows||'<tr><td colspan="11" class="mut">No trades yet.</td></tr>'}</tbody></table></div></div>`;
+  <div class="card"><h2>All trade requests (${trades.length})</h2><p><button class="btn" id="csvBtn">Download CSV</button></p><div style="overflow:auto"><table><thead><tr><th>Date</th><th>Trade</th><th>NGN</th><th>Crypto</th><th>Destination</th><th>Note</th><th>Status</th><th>WhatsApp</th><th>Name</th><th>State, Country</th><th>Action</th></tr></thead><tbody>${rows||'<tr><td colspan="11" class="mut">No trades yet.</td></tr>'}</tbody></table></div></div>`;
+  const csvBtn=$("#csvBtn");
+  if(csvBtn) csvBtn.onclick=()=>{
+    const head=["date","side","coin","amount_ngn","amount_crypto","rate_ngn_per_coin","status","user_email"];
+    const lines=trades.map(t=>[t.created_at,t.side,t.coin,t.amount_ngn,t.amount_crypto,t.rate_ngn_per_coin,t.status,(profiles[t.user_id]||{}).email||""].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(","));
+    const blob=new Blob([head.join(",")+"\n"+lines.join("\n")],{type:"text/csv"});
+    const url=URL.createObjectURL(blob), el=document.createElement("a");
+    el.href=url; el.download="pitchblack-trades.csv"; el.click(); URL.revokeObjectURL(url);
+  };
   document.querySelectorAll("button[data-id]").forEach(b=>b.onclick=async()=>{
     const id=b.dataset.id, s=b.dataset.s;
     try{ await sb("trade_requests?id=eq."+id,"PATCH",{status:s,updated_at:new Date().toISOString()}); render(); }
     catch(e){ alert(e.message); }
   });
 }
+
+async function snapshotRates(){
+  if(RATE_SOURCE.indexOf("live")!==0) return;
+  const today=new Date().toISOString().slice(0,10);
+  try{ await sb("rate_history","POST",{day:today,coin:"BTC",rate_ngn:RATES["BTC"]},{ Prefer:"resolution=merge-duplicates" }); }catch(e){}
+}
+
+// homepage proof counters (public count)
 
 // homepage proof counters (public count)
 async function loadProof(){
@@ -373,10 +419,28 @@ async function loadProof(){
     el1.textContent=cnt(r1); el2.textContent=cnt(r2);
   }catch(e){ el1.textContent="-"; el2.textContent="-"; }
 }
+async function loadReviews(){
+  const box=$("#reviewBox"); if(!box) return;
+  try{
+    const ts=await sb("testimonials?approved=eq.true&order=created_at.desc&limit=6&select=body,created_at,profiles!testimonials_user_id_fkey(fullname,whatsapp)");
+    box.innerHTML=ts.length?`<h2>What traders say</h2><div class="steps">${ts.map(t=>`<div class="step"><p>\u201C${esc(t.body)}\u201D</p><div class="sub">- ${esc((t.profiles||{}).fullname||"a trader")}</div></div>`).join("")}</div>`:"";
+  }catch(e){ box.innerHTML=""; }
+}
+loadReviews();
+
 loadProof();
 
 // boot: load rates, then render current hash
 loadRates();
+
+// submit testimonial
+document.addEventListener("submit",async e=>{
+  if(e.target.id!=="reviewForm")return;
+  e.preventDefault();
+  const m=$("#reviewMsg"); if(!m)return;
+  try{ await sb("testimonials","POST",{user_id:_session.user.id,body:e.target.body.value.trim(),approved:false}); m.textContent="Thanks. It shows once the desk approves it."; e.target.reset(); }
+  catch(err){ m.textContent=err.message; }
+});
 
 // save default payout details
 document.addEventListener("submit",async e=>{

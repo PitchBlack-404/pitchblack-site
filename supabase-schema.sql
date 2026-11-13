@@ -129,3 +129,36 @@ begin
   return new;
 end;
 $$;
+
+-- ---------- rate history (daily snapshots) ----------
+create table if not exists public.rate_history (
+  day date not null,
+  coin text not null,
+  rate_ngn numeric not null,
+  primary key (day, coin)
+);
+alter table public.rate_history enable row level security;
+create policy "anyone can read rate history" on public.rate_history
+  for select using (true);
+create policy "site can record daily snapshot" on public.rate_history
+  for insert with check (true);
+create policy "site can update daily snapshot" on public.rate_history
+  for update using (true);
+
+-- ---------- testimonials ----------
+create table if not exists public.testimonials (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  body text not null check (char_length(body) between 5 and 280),
+  approved boolean not null default false,
+  created_at timestamptz not null default now()
+);
+alter table public.testimonials enable row level security;
+create policy "own reviews select" on public.testimonials
+  for select using (auth.uid() = user_id);
+create policy "own reviews insert" on public.testimonials
+  for insert with check (auth.uid() = user_id);
+create policy "desk reviews select" on public.testimonials
+  for select using (true);
+create policy "desk reviews update" on public.testimonials
+  for update using (true);
