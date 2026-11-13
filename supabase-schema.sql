@@ -27,6 +27,9 @@ create table if not exists public.trade_requests (
   updated_at timestamptz not null default now()
 );
 
+-- ---------- whatsapp number on profiles ----------
+alter table public.profiles add column if not exists whatsapp text;
+
 -- ---------- indexes ----------
 create index if not exists trade_requests_user_created_idx
   on public.trade_requests (user_id, created_at desc);
@@ -41,8 +44,8 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (user_id, email)
-  values (new.id, new.email);
+  insert into public.profiles (user_id, email, whatsapp)
+  values (new.id, new.email, new.raw_user_meta_data->>'whatsapp');
   return new;
 end;
 $$;
