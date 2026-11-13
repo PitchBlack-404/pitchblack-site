@@ -162,3 +162,20 @@ create policy "desk reviews select" on public.testimonials
   for select using (true);
 create policy "desk reviews update" on public.testimonials
   for update using (true);
+
+-- ---------- trade progress stage shown on receipts ----------
+alter table public.trade_requests add column if not exists admin_stage int default 1;
+
+-- ---------- daily rate recap (auto-generated rows) ----------
+create table if not exists public.rate_recap (
+  day date primary key,
+  body text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.rate_recap enable row level security;
+create policy "anyone can read recap" on public.rate_recap
+  for select using (true);
+create policy "site can write recap" on public.rate_recap
+  for insert with check (true);
+create policy "site can update recap" on public.rate_recap
+  for update using (true);

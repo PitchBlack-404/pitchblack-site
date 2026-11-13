@@ -285,7 +285,9 @@ async function renderDashboard(app){
   try{ trades=await sb("trade_requests?user_id=eq."+u.id+"&order=created_at.desc"); }catch(e){ trades=[]; }
   const coinOpts=COINS.map(c=>`<option value="${esc(c.code)}">${esc(c.code)} — ${esc(c.name)}</option>`).join("");
   const rows=trades.length?trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)}</td><td>${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td><a href="#/receipt?id=${t.id}"><span class="pill ${esc(t.status)}">${esc(t.status)}</span></a></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td><td>${esc((profiles[t.user_id]||{}).fullname||"")}</td><td>${esc([(profiles[t.user_id]||{}).state,(profiles[t.user_id]||{}).country].filter(Boolean).join(", "))}</td></tr>`).join(""):`<tr><td colspan="6" class="mut">No trade requests yet.</td></tr>`;
+  const firstTrade=!trades.some(t=>t.status==="completed");
   app.innerHTML=`<h1>Dashboard <span class="small mut">${esc(u.email)}</span></h1>
+  ${firstTrade?`<div class="notice"><b>First trade perk:</b> complete your first trade and mention FIRSTTRADE on WhatsApp for a one-time better rate. Welcome to PitchBlack.</div>`:""}
   ${isAdmin(u)?`<p><a class="btn" href="#/admin">Admin panel</a></p>`:""}
   <div class="card"><div class="row"><h2>Live rates ${rateBadge()}</h2><span class="small mut">${esc(RATE_TS||"")}</span></div>
     <div class="rategrid">${COINS.map(c=>`<div class="rate"><div class="sub">${esc(c.code)}</div><b>${fmtNgn(RATES[c.code])}</b></div>`).join("")}</div></div>
@@ -322,7 +324,13 @@ async function renderDashboard(app){
     const p=(ps&&ps[0])||{}; const dest=$("input[name=destination]"); if(dest&&!dest.value&&p.default_destination)dest.value=p.default_destination;
     const refCode=p.referral_code||u.id.slice(0,8); const refLink=location.origin+location.pathname+"#/auth?ref="+refCode;
     const refBox=$("#refBox"); if(refBox)refBox.innerHTML=`<div class="card"><h2>Your referral link</h2><p class="mut small">Share it. When someone signs up through it, it's recorded against you.</p><input class="mono" style="width:100%;background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:10px;border-radius:10px" readonly value="${esc(refLink)}" onclick="this.select()"><p class="mut small" id="refCount"></p></div>`;
-    sb("profiles?referred_by=eq."+refCode+"&select=user_id").then(r=>{ const rc=$("#refCount"); if(rc)rc.textContent=r.length?r.length+" signups through your link":"No signups through your link yet."; }).catch(()=>{});
+    Promise.all([sb("profiles?referred_by=eq."+refCode+"&select=user_id"),sb("trade_requests?status=eq.completed&select=user_id,amount_ngn")]).then(([refs,done])=>{
+      const rc=$("#refCount"); if(!rc)return;
+      const ids=refs.map(r=>r.user_id);
+      const earned=done.filter(t=>ids.includes(t.user_id)).reduce((s,t)=>s+Number(t.amount_ngn||0),0);
+      const bonus=Math.round(earned*0.005);
+      rc.innerHTML=refs.length?refs.length+" signups through your link. Their completed trades: "+fmtNgn(earned)+". Your reward balance (0.5%): <b>"+fmtNgn(bonus)+"</b>, paid by the desk on WhatsApp.":"No signups through your link yet.";
+    }).catch(()=>{});
   }).catch(()=>{});
 
   let side="buy";
@@ -353,7 +361,12 @@ async function renderReceipt(app){
   let t=null;
   try{ t=(await sb("trade_requests?id=eq."+id+"&select=*"))[0]; }catch(e){}
   if(!t){ app.innerHTML=`<h1>Receipt</h1><div class="notice">Trade not found.</div>`; return; }
-  app.innerHTML=`<h1>Trade receipt</h1><div class="card"><table><tbody>
+  const STEPS=["request placed","confirmed by desk","awaiting payment","settled"];
+  const stage=t.status==="completed"?3:(t.status==="declined"?-1:(t.admin_stage?Number(t.admin_stage):1));
+  const stepLine=stage<0?`<div class="notice">This request was declined by the desk. Message WhatsApp below for details.</div>`:`<div class="steps">${STEPS.map((s,i)=>`<div class="step" style="${i<=stage?"":"opacity:.35"}"><b>${i<=stage?"\u2713":i+1}</b><p>${s}</p></div>`).join("")}</div>`;
+  app.innerHTML=`<h1>Trade receipt</h1>
+  <div class="card">${stepLine}</div>
+  <div class="card"><table><tbody>
   <tr><td>Date</td><td>${new Date(t.created_at).toLocaleString()}</td></tr>
   <tr><td>Side</td><td><b>${esc(t.side).toUpperCase()}</b></td></tr>
   <tr><td>Coin</td><td>${esc(t.coin)}</td></tr>
@@ -373,7 +386,7 @@ async function renderAdmin(app){
   try{ trades=await sb("trade_requests?order=created_at.desc"); }catch(e){ trades=[]; }
   try{ (await sb("profiles?select=user_id,whatsapp,email,fullname,country,state")).forEach(p=>profiles[p.user_id]=p); }catch(e){}
   const rows=trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)} ${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td class="mono">${esc(t.destination)}</td><td>${esc(t.destination_note||"")}</td><td><a href="#/receipt?id=${t.id}"><span class="pill ${esc(t.status)}">${esc(t.status)}</span></a></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td><td>${esc((profiles[t.user_id]||{}).fullname||"")}</td><td>${esc([(profiles[t.user_id]||{}).state,(profiles[t.user_id]||{}).country].filter(Boolean).join(", "))}</td>
-    <td>${["pending","completed","declined"].map(s=>`<button class="btn" data-id="${t.id}" data-s="${s}" ${t.status===s?"disabled":""}>${s}</button>`).join(" ")}</td></tr>`).join("");
+    <td>${["pending","completed","declined"].map(s=>`<button class="btn" data-id="${t.id}" data-s="${s}" ${t.status===s?"disabled":""}>${s}</button>`).join(" ")} <select class="stageSel" data-id="${t.id}">${["1","2","3"].map(n=>`<option value="${n}" ${String(t.admin_stage||"")==n?"selected":""}>stage ${n}</option>`).join("")}</select></td></tr>`).join("");
   const today=new Date(); today.setHours(0,0,0,0);
   const week=Date.now()-7*864e5;
   const pend=trades.filter(t=>t.status==="pending").length;
@@ -403,6 +416,10 @@ async function renderAdmin(app){
     const url=URL.createObjectURL(blob), el=document.createElement("a");
     el.href=url; el.download="pitchblack-trades.csv"; el.click(); URL.revokeObjectURL(url);
   };
+  document.querySelectorAll("select.stageSel").forEach(sel=>sel.onchange=async()=>{
+    try{ await sb("trade_requests?id=eq."+sel.dataset.id,"PATCH",{admin_stage:sel.value,updated_at:new Date().toISOString()}); render(); }
+    catch(e){ alert(e.message); }
+  });
   document.querySelectorAll("button[data-id]").forEach(b=>b.onclick=async()=>{
     const id=b.dataset.id, s=b.dataset.s;
     try{ await sb("trade_requests?id=eq."+id,"PATCH",{status:s,updated_at:new Date().toISOString()}); render(); }
