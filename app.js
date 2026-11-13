@@ -350,3 +350,39 @@ document.addEventListener("submit",async e=>{
   try{ await sb("email_subscribers","POST",{email}); m.textContent="You're on the list."; e.target.reset(); }
   catch(err){ m.textContent=err.message; }
 });
+
+// ---------- rate alerts ----------
+async function renderAlerts(u){
+  let alerts=[];
+  try{ alerts=await sb("rate_alerts?user_id=eq."+u.id+"&status=eq.active&order=created_at.desc"); }catch(e){ alerts=[]; }
+  const triggered=[];
+  alerts.forEach(a=>{ const r=RATES[a.coin]; if(!r) return;
+    if((a.direction==="above"&&r>=a.target_ngn)||(a.direction==="below"&&r<=a.target_ngn)){
+      triggered.push(a);
+      sb("rate_alerts?id=eq."+a.id,"PATCH",{status:"triggered",triggered_at:new Date().toISOString(),triggered_rate:r}).catch(()=>{});
+    }
+  });
+  const row=a=>`<tr><td><b>${esc(a.coin)}</b></td><td>${a.direction==="above"?"rises to":"falls to"} ${fmtNgn(a.target_ngn)}</td><td><span class="pill ${a.status}">${esc(a.status)}</span></td><td>${a.status==="active"?`<button class="btn" data-alert="${a.id}">Cancel</button>`:""}</td></tr>`;
+  const list=alerts.length?alerts.map(row).join(""):`<tr><td colspan="4" class="mut">No alerts yet.</td></tr>`;
+  return `<div class="card"><h2>Rate alerts</h2>
+  <p class="mut small">We check the live naira rate. When it crosses your target, the alert fires and shows here, and the desk can confirm your rate on WhatsApp.</p>
+  <form id="alertForm"><label>Coin<select name="coin">${COINS.map(c=>`<option value="${esc(c.code)}">${esc(c.code)}</option>`).join("")}</select></label>
+  <label>Alert me when the rate goes<select name="direction"><option value="above">above</option><option value="below">below</option></select></label>
+  <label>Target rate (NGN per coin)<input name="target" inputmode="decimal" required placeholder="e.g. ${Math.round(RATES["BTC"]||100000000)}"></label>
+  <button class="btn primary">Set alert</button><p class="mut small" id="alertMsg"></p></form>
+  <div style="overflow:auto"><table><thead><tr><th>Coin</th><th>Condition</th><th>Status</th><th></th></tr></thead><tbody>${list}</tbody></table></div>
+  ${triggered.length?`<div class="notice"><b>Alert hit:</b> ${triggered.map(a=>esc(a.coin)+" is now "+fmtNgn(RATES[a.coin])).join(", ")}. Message <a href="${WA}" target="_blank" rel="noopener">WhatsApp +234****5312</a> to trade at this rate.</div>`:""}</div>`;
+}
+document.addEventListener("submit",async e=>{
+  if(e.target.id!=="alertForm")return;
+  e.preventDefault();
+  const f=new FormData(e.target), m=$("#alertMsg"); if(!m)return;
+  const target=Number(f.get("target"));
+  if(!(target>0)){ m.textContent="Enter a valid target rate."; return; }
+  try{ await sb("rate_alerts","POST",{user_id:_session.user.id,coin:f.get("coin"),direction:f.get("direction"),target_ngn:target,status:"active"}); render(); }
+  catch(err){ m.textContent=err.message; }
+});
+document.addEventListener("click",async e=>{
+  const id=e.target&&e.target.dataset&&e.target.dataset.alert; if(!id)return;
+  try{ await sb("rate_alerts?id=eq."+id,"PATCH",{status:"cancelled"}); render(); }catch(err){ alert(err.message); }
+});
