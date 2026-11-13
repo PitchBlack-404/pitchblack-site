@@ -510,18 +510,11 @@ document.addEventListener("click",async e=>{
 
 // ---------- support chatbot (AI with live-rate context, WhatsApp escalation) ----------
 async function aiReply(q){
-  const key=(CFG.AI_API_KEY||"").trim();
-  if(!key) return null; // no key: fall back to rule-based answers
-  const rateLines=COINS.map(c=>c.code+": "+fmtNgn(RATES[c.code])+" NGN").join(", ");
-  const sys="You are the PitchBlack support agent. PitchBlack is a manual-settlement OTC crypto desk in Nigeria trading naira for crypto and vice versa, run by one operator on WhatsApp +2349016755312. Answer short (2-3 sentences), plain English, friendly but never gushing. Facts: trades settle within 30 minutes of WhatsApp confirmation, bank hours apply; rates on the site already include the desk spread, about 1.5% on BTC and ETH, about 2% on other coins; minimum buy is 5,000 naira, sell minimums vary by coin; coins traded: BTC, USDT, USDC, ETH, BNB, SOL, XRP, DOGE, TRX; signups ask for email, password, WhatsApp, full name, country and state; the desk never holds custody and every trade is confirmed by a human on WhatsApp before funds move. Current live rates per coin: "+rateLines+". Hard rules: never quote a trade or promise a rate, the desk confirms rates on WhatsApp; never ask for card numbers, passwords, seed phrases or bank PINs; for disputes, payments, delays or anything you are unsure of, point them to the WhatsApp button in the chat.";
-  const res=await fetch("https://api.openrouter.ai/api/v1/chat/completions",{
-    method:"POST",
-    headers:{Authorization:"Bearer "+key,"Content-Type":"application/json","X-Title":"PitchBlack Support"},
-    body:JSON.stringify({model:CFG.AI_MODEL||"openai/gpt-4o-mini",max_tokens:200,temperature:0.4,messages:[{role:"system",content:sys},{role:"user",content:q}]})
-  });
-  if(!res.ok) throw new Error("ai "+res.status);
+  // asks the ai-chat Supabase edge function; the API key lives server-side, never in this file
+  const res=await fetch("https://kvivbndffnzlujhbpspr.supabase.co/functions/v1/ai-chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:q})});
+  if(!res.ok) return null;
   const d=await res.json();
-  return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content||"").trim();
+  return d&&d.reply&&!d.reply.startsWith("Sorry, the assistant is unavailable")?d.reply:null;
 }
 
 // ---------- support chatbot (rule-based fallback, live rates, WhatsApp escalation) ----------
