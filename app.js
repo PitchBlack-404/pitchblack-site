@@ -383,7 +383,18 @@ async function renderAdmin(app){
   <div class="rategrid"><div class="rate"><div class="sub">Pending now</div><b>${pend}</b></div>
   <div class="rate"><div class="sub">Requests today</div><b>${todayN.length}</b></div>
   <div class="rate"><div class="sub">NGN volume, 7 days</div><b>${fmtNgn(weekNgn)}</b></div></div>
+  <div class="card"><h2>Reviews waiting for approval</h2><div id="revQueue" class="mut small">Loading...</div></div>
+
   <div class="card"><h2>All trade requests (${trades.length})</h2><p><button class="btn" id="csvBtn">Download CSV</button></p><div style="overflow:auto"><table><thead><tr><th>Date</th><th>Trade</th><th>NGN</th><th>Crypto</th><th>Destination</th><th>Note</th><th>Status</th><th>WhatsApp</th><th>Name</th><th>State, Country</th><th>Action</th></tr></thead><tbody>${rows||'<tr><td colspan="11" class="mut">No trades yet.</td></tr>'}</tbody></table></div></div>`;
+  sb("testimonials?approved=eq.false&order=created_at.desc&select=*").then(ts=>{
+    const q=$("#revQueue"); if(!q)return;
+    q.innerHTML=ts.length?`<table><tbody>${ts.map(t=>`<tr><td>${esc(t.body)}</td><td><button class="btn" data-rev="${t.id}" data-a="true">Approve</button> <button class="btn" data-rev="${t.id}" data-a="false">Hide</button></td></tr>`).join("")}</tbody></table>`:"No reviews waiting.";
+    q.querySelectorAll("button[data-rev]").forEach(b=>b.onclick=async()=>{
+      try{ await sb("testimonials?id=eq."+b.dataset.rev,"PATCH",{approved:b.dataset.a==="true"}); render(); }
+      catch(e){ alert(e.message); }
+    });
+  }).catch(()=>{ const q=$("#revQueue"); if(q)q.textContent="Reviews table not created yet. Run the SQL from my last message."; });
+
   const csvBtn=$("#csvBtn");
   if(csvBtn) csvBtn.onclick=()=>{
     const head=["date","side","coin","amount_ngn","amount_crypto","rate_ngn_per_coin","status","user_email"];
