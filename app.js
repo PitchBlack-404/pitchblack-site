@@ -508,7 +508,23 @@ document.addEventListener("click",async e=>{
   try{ await sb("rate_alerts?id=eq."+id,"PATCH",{status:"cancelled"}); render(); }catch(err){ alert(err.message); }
 });
 
-// ---------- support chatbot (rule-based, live rates, WhatsApp escalation) ----------
+// ---------- support chatbot (AI with live-rate context, WhatsApp escalation) ----------
+async function aiReply(q){
+  const key=(CFG.AI_API_KEY||"").trim();
+  if(!key) return null; // no key: fall back to rule-based answers
+  const rateLines=COINS.map(c=>c.code+": "+fmtNgn(RATES[c.code])+" NGN").join(", ");
+  const sys="You are the PitchBlack support agent. PitchBlack is a manual-settlement OTC crypto desk in Nigeria trading naira for crypto and vice versa, run by one operator on WhatsApp +2349016755312. Answer short (2-3 sentences), plain English, friendly but never gushing. Facts: trades settle within 30 minutes of WhatsApp confirmation, bank hours apply; rates on the site already include the desk spread, about 1.5% on BTC and ETH, about 2% on other coins; minimum buy is 5,000 naira, sell minimums vary by coin; coins traded: BTC, USDT, USDC, ETH, BNB, SOL, XRP, DOGE, TRX; signups ask for email, password, WhatsApp, full name, country and state; the desk never holds custody and every trade is confirmed by a human on WhatsApp before funds move. Current live rates per coin: "+rateLines+". Hard rules: never quote a trade or promise a rate, the desk confirms rates on WhatsApp; never ask for card numbers, passwords, seed phrases or bank PINs; for disputes, payments, delays or anything you are unsure of, point them to the WhatsApp button in the chat.";
+  const res=await fetch("https://api.openrouter.ai/api/v1/chat/completions",{
+    method:"POST",
+    headers:{Authorization:"Bearer "+key,"Content-Type":"application/json","X-Title":"PitchBlack Support"},
+    body:JSON.stringify({model:CFG.AI_MODEL||"openai/gpt-4o-mini",max_tokens:200,temperature:0.4,messages:[{role:"system",content:sys},{role:"user",content:q}]})
+  });
+  if(!res.ok) throw new Error("ai "+res.status);
+  const d=await res.json();
+  return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content||"").trim();
+}
+
+// ---------- support chatbot (rule-based fallback, live rates, WhatsApp escalation) ----------
 const PB_ANSWERS=[
   {k:["settle","how long","arrive","when will i receive","receive my"],a:"Most trades settle within 30 minutes of the desk confirming on WhatsApp. Naira transfers follow Nigerian bank hours."},
   {k:["fee","spread","charge","cost","commission"],a:"Rates on this site already include the desk spread: about 1.5% on BTC and ETH, about 2% on other coins. The rate you see is the rate you trade."},
@@ -552,7 +568,9 @@ function pbWidget(){
     const log=document.getElementById("pbLog");
     log.insertAdjacentHTML("beforeend",`<div class="pbMsg pbMe">${esc(q)}</div><div class="pbMsg pbBot2" id="pbTyping">...</div>`);
     log.scrollTop=log.scrollHeight;
-    const ans=await pbAnswer(q)||"I don't have that one. For anything about a real trade, payment or dispute, message the desk on WhatsApp below, a human answers.";
+    let ans=null;
+    try{ ans=await aiReply(q); }catch(err){ ans=null; }
+    if(!ans) ans=await pbAnswer(q)||"I don't have that one. For anything about a real trade, payment or dispute, message the desk on WhatsApp below, a human answers.";
     const t=document.getElementById("pbTyping"); if(t){ t.textContent=ans; }
     log.scrollTop=log.scrollHeight;
   };

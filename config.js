@@ -19,6 +19,13 @@ window.PITCHBLACK_CONFIG = {
   SUPABASE_ANON_KEY: "sb_publishable_rXDC2k3DppYwHbL6JLJfhQ_nAzKPJvK",
 
   // Emails that get the admin view. Add your own login email here.
+
+  // --- AI support bot (optional). Paste an OpenRouter API key to make the
+  // chatbot answer anything in plain language. Without a key it falls back to
+  // the built-in answers. WARNING: this file is public, so use a key with a
+  // small spend limit on it, or route through a Supabase edge function later.
+  AI_API_KEY: "",
+  AI_MODEL: "openai/gpt-4o-mini",
   ADMIN_EMAILS: [
     "ogbonnaelvischuks1@gmail.com"
   ],
