@@ -262,7 +262,14 @@ async function renderAuth(app){
     <p class="small" style="margin-top:10px"><a href="#" id="forgotBack">Back to login</a></p>
   </div>`;
   let mode="login";
-  document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");mode=t.dataset.m;["waField","nameField","countryField","stateField"].forEach(id=>{const el=$("#"+id);if(el)el.hidden=mode!=="signup";});});
+  const extraIds=["waField","nameField","countryField","stateField"];
+  function syncMode(){
+    extraIds.forEach(id=>{const el=$("#"+id); if(!el) return; el.hidden=mode!=="signup"; el.querySelector("input")&&(el.querySelector("input").required=mode==="signup");});
+    const btn=$("#authForm button[type=submit], #authForm button"); if(btn) btn.textContent=mode==="signup"?"Sign up":"Log in";
+    const h1=app.querySelector("h1"); if(h1) h1.textContent=mode==="signup"?"Sign up":"Sign in";
+  }
+  document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");mode=t.dataset.m;syncMode();});
+  syncMode();
   $("#authForm").onsubmit=async e=>{
     e.preventDefault();
     const f=new FormData(e.target), email=f.get("email"), pw=f.get("password"), wa=(f.get("whatsapp")||"").trim(), fn=(f.get("fullname")||"").trim(), ctry=(f.get("country")||"").trim(), st=(f.get("state")||"").trim();
