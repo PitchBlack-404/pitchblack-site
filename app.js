@@ -12,6 +12,13 @@ const esc = s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":
 const fmtNgn = n=>"₦"+Number(n||0).toLocaleString("en-NG",{maximumFractionDigits:0});
 const fmtCrypto = (n,d)=>Number(n||0).toLocaleString("en-GB",{maximumFractionDigits:d??6,minimumFractionDigits:0});
 const fmtDate = iso=>new Date(iso).toLocaleString();
+function setLoading(app,label){ app.innerHTML = '<p class="mut" aria-busy="true">'+esc(label||'Loading...')+'</p>'; }
+function fetchWithTimeout(url,opts,ms){
+  const c = new AbortController();
+  const t = setTimeout(()=>{ try{ c.abort(); }catch(e){} }, ms||12000);
+  opts = Object.assign({}, opts||{}, { signal: c.signal });
+  return fetch(url, opts).finally(()=>{ clearTimeout(t); });
+}
 
 // minimal supabase client fetch helper (no SDK needed for static)
 let _session = JSON.parse(localStorage.getItem("pb_session")||"null");
@@ -31,8 +38,8 @@ async function restoreSession(){
   if(_sessionRestored) return _session;
   if(_session?.access_token){
     if(_session?.expires_at && Date.now()/1000 > _session.expires_at-30){
-      if(!_refreshing) _refreshing=refreshSession().finally(()=>{_refreshing=null;});
-      if(_refreshing) await _refreshing;
+      if(!_refreshing) _refreshing=Promise.race([refreshSession(), new Promise(r=>setTimeout(()=>r(false), 8000))]).finally(()=>{_refreshing=null;});
+      try{ await _refreshing; }catch(e){}
     }
     _sessionRestored=true;
     return _session;
@@ -40,17 +47,17 @@ async function restoreSession(){
   _sessionRestored=true;
   return _session;
 }
-async function sb(path,method="GET",body){
+async function sb(path,method="GET",body,_retry){
   if(SETUP_PENDING) throw new Error("setup pending");
   await restoreSession();
   const h={"apikey":SUPABASE_KEY,"Content-Type":"application/json"};
   if(_session?.access_token) h["Authorization"]="Bearer "+_session.access_token;
-  const res = await fetch(SUPABASE_URL+"/rest/v1/"+path,{method,headers:h,body:body?JSON.stringify(body):undefined});
+  const res = await fetchWithTimeout(SUPABASE_URL+"/rest/v1/"+path,{method,headers:h,body:body?JSON.stringify(body):undefined}, 12000);
   const text = await res.text();
   let data; try{data=JSON.parse(text)}catch{data=text}
-  if(res.status===401 || (typeof text==="string"&&text.toLowerCase().includes("jwt expired"))){
+  if((_retry!==1) && (res.status===401 || (typeof text==="string"&&text.toLowerCase().includes("jwt expired")))){
     const ok=await refreshSession();
-    if(ok) return sb(path,method,body);
+    if(ok) return sb(path,method,body,1);
     // refresh failed: old session is dead, drop it and ask for login again
     _session=null; localStorage.removeItem("pb_session");
     renderNav&&renderNav();
@@ -143,9 +150,12 @@ async function renderNav(){
 // router
 window.addEventListener("hashchange", render);
 async function render(){
-  await renderNav();
   const h=location.hash||"#/";
   const app=$("#app");
+  if(!app) return;
+  setLoading(app, 'Loading...');
+  try{ await renderNav(); }catch(e){ /* nav failure must not block the route */ }
+  try{
   // supabase detectSessionInUrl: recovery links land with #access_token=...&type=recovery (not #/...)
   if(isRecoveryFlow()){
     location.hash="#/auth"; 
@@ -166,6 +176,9 @@ async function render(){
   if(h.startsWith("#/receipt")) return renderReceipt(app);
   if(h.startsWith("#/admin")) return renderAdmin(app);
   return renderHome(app);
+  }catch(err){
+    app.innerHTML = '<h1>Something went wrong</h1><div class="notice"><b>'+esc(err && err.message ? err.message : 'Could not load this page.')+'</b><p class="mut small">Try again in a moment, or sign in again if your session expired. Rates are still available on the <a href="#/rates">Rates</a> page.</p></div>';
+  }
 }
 
 function waBtn(text){ return `<a class="btn primary" href="${WA}" target="_blank" rel="noopener">${text||"Chat on WhatsApp"}</a>`; }
@@ -197,18 +210,23 @@ function renderHome(app){
 `;
 }
 
-function renderRates(app){
+async function renderRates(app){
+  setLoading(app,'Loading rates...');
+  try{
   const hist=await (async()=>{ try{ return await sb("rate_history?select=*&order=day.desc&limit=200"); }catch(e){ return []; } })();
   const byCoin=c=>{ const pts=hist.filter(r=>r.coin===c.code).slice(0,7).reverse(); if(pts.length<2)return"";
     const vs=pts.map(p=>Number(p.rate_ngn)), mn=Math.min(...vs), mx=Math.max(...vs), W=90,H=26;
     const path=vs.map((v,i)=>`${i?"L":"M"}${(i/(vs.length-1)*W).toFixed(1)},${(H-(v-mn)/((mx-mn)||1)*H).toFixed(1)}`).join("");
     const up=vs[vs.length-1]>=vs[0];
     return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><path d="${path}" fill="none" stroke="${up?"#22c55e":"#ef4444"}" stroke-width="2"/></svg>`; };
-  const rows=COINS.map(c=>`<tr><td><b>${esc(c.code)}</b></td><td>${esc(c.name)}</td><td>${fmtNgn(RATES[c.code])} <span class="mut small">(desk spread included, ~${c.code==="BTC"||c.code==="ETH"?"1.5":"2"}%)</span></td><td>${hist7(c)||byCoin(c)}</td><td class="mut">${esc(c.note||"")}</td></tr>`).join("");
+  const rows=COINS.map(c=>`<tr><td><b>${esc(c.code)}</b></td><td>${esc(c.name)}</td><td>${fmtNgn(RATES[c.code])} <span class="mut small">(desk spread included, ~${c.code==="BTC"||c.code==="ETH"?"1.5":"2"}%)</span></td><td>${byCoin(c)}</td><td class="mut">${esc(c.note||"")}</td></tr>`).join("");
   app.innerHTML=`<h1>NGN rates ${rateBadge()}</h1>
   <p class="mut small">Source: CoinGecko public API, fetched client-side on every page load. Fallback table in config.js is used when the API is unreachable.</p>
   <div class="card" style="overflow:auto"><table><thead><tr><th>Coin</th><th>Name</th><th>NGN per coin</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></div>
   ${waBtn("Trade on WhatsApp")}`;
+  }catch(err){
+    app.innerHTML = '<h1>NGN rates</h1><div class="notice"><b>Could not load rates:</b> '+esc(err && err.message ? err.message : 'network error')+'</div><p class="mut small">Fallback rates are shown on the home page. Try again in a moment.</p>';
+  }
 }
 
 async function renderAuth(app){
@@ -309,9 +327,13 @@ async function renderAuth(app){
 }
 
 async function requireUser(app){
-  const u=await supabaseUser();
   if(SETUP_PENDING){ app.innerHTML=`<h1>Dashboard</h1>${setupNotice()}`; return null; }
-  if(!u){ location.hash="#/auth"; return null; }
+  let u = null;
+  try{ u = await supabaseUser(); }catch(e){ u = null; }
+  if(!u){
+    app.innerHTML = '<h1>Dashboard</h1><div class="notice"><b>Please sign in.</b> Your session has expired or could not be verified.<p class="mut small"><a href="#/auth">Go to sign in</a></p></div>';
+    return null;
+  }
   return u;
 }
 
@@ -328,13 +350,25 @@ function orderSummary(c,side,ngn,crypto,rate){
 }
 
 async function renderDashboard(app){
-  const u=await requireUser(app); if(!u) return;
+  setLoading(app,'Loading your dashboard...');
+  let u = null;
+  let loadError = null;
+  try{ u = await requireUser(app); }catch(e){ loadError = e; }
+  if(!u) return;
+  // Load the user's own profile row (referral + payout prefill only). Its absence
+  // (e.g. handle_new_user trigger did not fire) must never block the dashboard,
+  // and this function must never reference an undefined profiles map.
+  let myProfile = null;
+  try{ const ps = await sb("profiles?user_id=eq."+u.id+"&select=*"); myProfile = (ps && ps[0]) || null; }catch(e){ /* optional */ }
   let trades=[];
-  try{ trades=await sb("trade_requests?user_id=eq."+u.id+"&order=created_at.desc"); }catch(e){ trades=[]; }
+  try{ trades=await sb("trade_requests?user_id=eq."+u.id+"&order=created_at.desc"); }catch(e){ trades=[]; loadError = loadError || e; }
+  trades = Array.isArray(trades) ? trades : [];
   const coinOpts=COINS.map(c=>`<option value="${esc(c.code)}">${esc(c.code)} — ${esc(c.name)}</option>`).join("");
-  const rows=trades.length?trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)}</td><td>${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td><a href="#/receipt?id=${t.id}"><span class="pill ${esc(t.status)}">${esc(t.status)}</span></a></td><td class="mono">${esc((profiles[t.user_id]||{}).whatsapp||"")}</td><td>${esc((profiles[t.user_id]||{}).fullname||"")}</td><td>${esc([(profiles[t.user_id]||{}).state,(profiles[t.user_id]||{}).country].filter(Boolean).join(", "))}</td></tr>`).join(""):`<tr><td colspan="6" class="mut">No trade requests yet.</td></tr>`;
+  const rows=trades.length?trades.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${esc(t.side)}</td><td>${esc(t.coin)}</td><td>${fmtNgn(t.amount_ngn)}</td><td>${fmtCrypto(t.amount_crypto,6)}</td><td><a href="#/receipt?id=${t.id}"><span class="pill ${esc(t.status)}">${esc(t.status)}</span></a></td></tr>`).join(""):`<tr><td colspan="6" class="mut">No trade requests yet.</td></tr>`;
+  const errorBanner = loadError ? `<div class="notice"><b>Some dashboard data could not load:</b> ${esc(loadError.message||'network error')}<p class="mut small">Your trade form below still works. Try refreshing in a moment.</p></div>` : '';
   const firstTrade=!trades.some(t=>t.status==="completed");
   app.innerHTML=`<h1>Dashboard <span class="small mut">${esc(u.email)}</span></h1>
+  ${errorBanner}
   ${firstTrade?`<div class="notice"><b>First trade perk:</b> complete your first trade and mention FIRSTTRADE on WhatsApp for a one-time better rate. Welcome to PitchBlack.</div>`:""}
   ${isAdmin(u)?`<p><a class="btn" href="#/admin">Admin panel</a></p>`:""}
   <div class="card"><div class="row"><h2>Live rates ${rateBadge()}</h2><span class="small mut">${esc(RATE_TS||"")}</span></div>
@@ -367,19 +401,27 @@ async function renderDashboard(app){
 
   <div class="card"><h2>Your trade requests</h2><div style="overflow:auto"><table><thead><tr><th>Date</th><th>Side</th><th>Coin</th><th>NGN</th><th>Crypto</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
   <p class="mut small">Pending trades get confirmed on <a href="${WA}" target="_blank" rel="noopener">WhatsApp +2349016755312</a>.</p></div>`;
-  renderAlerts(u).then(h=>{ const b=$("#alertsBox"); if(b)b.innerHTML=h; });
-  sb("profiles?user_id=eq."+u.id+"&select=*").then(ps=>{
-    const p=(ps&&ps[0])||{}; const dest=$("input[name=destination]"); if(dest&&!dest.value&&p.default_destination)dest.value=p.default_destination;
-    const refCode=p.referral_code||u.id.slice(0,8); const refLink=location.origin+location.pathname+"#/auth?ref="+refCode;
-    const refBox=$("#refBox"); if(refBox)refBox.innerHTML=`<div class="card"><h2>Your referral link</h2><p class="mut small">Share it. When someone signs up through it, it's recorded against you.</p><input class="mono" style="width:100%;background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:10px;border-radius:10px" readonly value="${esc(refLink)}" onclick="this.select()"><p class="mut small" id="refCount"></p></div>`;
-    Promise.all([sb("profiles?referred_by=eq."+refCode+"&select=user_id"),sb("trade_requests?status=eq.completed&select=user_id,amount_ngn")]).then(([refs,done])=>{
-      const rc=$("#refCount"); if(!rc)return;
-      const ids=refs.map(r=>r.user_id);
-      const earned=done.filter(t=>ids.includes(t.user_id)).reduce((s,t)=>s+Number(t.amount_ngn||0),0);
+  renderAlerts(u).then(h=>{ const b=$("#alertsBox"); if(b)b.innerHTML=h; }).catch(()=>{});
+  // Referral + payout prefill from the already-loaded profile. Non-fatal on failure.
+  (async()=>{
+    const p = myProfile || {};
+    const dest=$("input[name=destination]"); if(dest&&!dest.value&&p.default_destination)dest.value=p.default_destination;
+    const refCode = p.referral_code || u.id.slice(0,8);
+    const refLink = location.origin+location.pathname+"#/auth?ref="+refCode;
+    const refBox=$("#refBox");
+    if(refBox) refBox.innerHTML='<div class="card"><h2>Your referral link</h2><p class="mut small">Share it. When someone signs up through it, it is recorded against you.</p><input class="mono" style="width:100%;background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:10px;border-radius:10px" readonly value="'+esc(refLink)+'" onclick="this.select()"><p class="mut small" id="refCount"></p></div>';
+    try{
+      const refs = await sb("profiles?referred_by=eq."+refCode+"&select=user_id").catch(()=>[]);
+      const done = await sb("trade_requests?status=eq.completed&select=user_id,amount_ngn").catch(()=>[]);
+      const rc=$("#refCount"); if(!rc) return;
+      const safeRefs = Array.isArray(refs) ? refs : [];
+      const safeDone = Array.isArray(done) ? done : [];
+      const ids=safeRefs.map(r=>r.user_id);
+      const earned=safeDone.filter(t=>ids.includes(t.user_id)).reduce((sum,t)=>sum+Number(t.amount_ngn||0),0);
       const bonus=Math.round(earned*0.005);
-      rc.innerHTML=refs.length?refs.length+" signups through your link. Their completed trades: "+fmtNgn(earned)+". Your reward balance (0.5%): <b>"+fmtNgn(bonus)+"</b>, paid by the desk on WhatsApp.":"No signups through your link yet.";
-    }).catch(()=>{});
-  }).catch(()=>{});
+      rc.innerHTML=safeRefs.length?safeRefs.length+" signups through your link. Their completed trades: "+fmtNgn(earned)+". Your reward balance (0.5%): <b>"+fmtNgn(bonus)+"</b>, paid by the desk on WhatsApp.":"No signups through your link yet.";
+    }catch(e){ const rc=$("#refCount"); if(rc) rc.textContent="Referral stats unavailable right now."; }
+  })();
 
   let side="buy";
   document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");side=t.dataset.s;$("#buyFields").hidden=side!=="buy";$("#sellFields").hidden=side!=="sell";});
