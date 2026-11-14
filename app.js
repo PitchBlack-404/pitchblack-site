@@ -26,13 +26,23 @@ async function refreshSession(){
   }catch(e){ return false; }
 }
 let _refreshing=null;
+let _sessionRestored=false;
+async function restoreSession(){
+  if(_sessionRestored) return _session;
+  if(_session?.access_token){
+    if(_session?.expires_at && Date.now()/1000 > _session.expires_at-30){
+      if(!_refreshing) _refreshing=refreshSession().finally(()=>{_refreshing=null;});
+      if(_refreshing) await _refreshing;
+    }
+    _sessionRestored=true;
+    return _session;
+  }
+  _sessionRestored=true;
+  return _session;
+}
 async function sb(path,method="GET",body){
   if(SETUP_PENDING) throw new Error("setup pending");
-  // proactively refresh expired sessions (Supabase tokens last ~1 hour)
-  if(_session?.expires_at && Date.now()/1000 > _session.expires_at-30 && !_refreshing){
-    _refreshing=refreshSession().finally(()=>{_refreshing=null;});
-  }
-  if(_refreshing) await _refreshing;
+  await restoreSession();
   const h={"apikey":SUPABASE_KEY,"Content-Type":"application/json"};
   if(_session?.access_token) h["Authorization"]="Bearer "+_session.access_token;
   const res = await fetch(SUPABASE_URL+"/rest/v1/"+path,{method,headers:h,body:body?JSON.stringify(body):undefined});
@@ -100,7 +110,7 @@ function isRecoveryFlow(){
   return h.includes("access_token=") && (h.includes("type=recovery")||!h.startsWith("#/"));
 }
 async function signOut(){ _session=null; localStorage.removeItem("pb_session"); await supabaseUser(); }
-async function supabaseUser(){ return _session?.user||null; }
+async function supabaseUser(){ await restoreSession(); return _session?.user||null; }
 const isAdmin = u=> !!u && ADMIN_EMAILS.includes((u.email||"").toLowerCase());
 
 // rates
@@ -145,7 +155,12 @@ async function render(){
     return renderAuth(app);
   }
   if(h.startsWith("#/rates")) return renderRates(app);
-  if(h.startsWith("#/auth")) return renderAuth(app);
+  if(h.startsWith("#/auth")){
+    // already logged in: go straight to the trade page instead of showing login again
+    const u=await supabaseUser();
+    if(u && !isRecoveryFlow()){ location.hash="#/dashboard"; return; }
+    return renderAuth(app);
+  }
   if(h.startsWith("#/dashboard")) return renderDashboard(app);
   if(h.startsWith("#/recap")) return renderRecap(app);
   if(h.startsWith("#/receipt")) return renderReceipt(app);
